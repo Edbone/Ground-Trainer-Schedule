@@ -140,6 +140,9 @@
         <label>Notes
           <input id="bookingNotes" maxlength="100" placeholder="Optional">
         </label>
+        <label>Booked by initials
+          <input id="bookingInitials" required minlength="3" maxlength="3" pattern="[A-Za-z]{3}" autocomplete="off" placeholder="ABC" title="Enter exactly 3 initials">
+        </label>
       </div>
       <p class="form-error" id="bookingError"></p>
       <div class="dialog-actions">

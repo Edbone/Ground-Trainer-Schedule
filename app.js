@@ -161,6 +161,7 @@ function bindEvents() {
   $("#scheduleSearch").addEventListener("focus", renderScheduleSearch);
   document.addEventListener("click", closeScheduleSearch);
   $("#bookingName").addEventListener("change", normalizePersonName);
+  $("#bookingInitials").addEventListener("input", normalizeInitials);
   $("#scoreName").addEventListener("change", normalizePersonName);
   $$("[data-close]").forEach((button) => button.addEventListener("click", () => $("#" + button.dataset.close).close()));
 }
@@ -231,7 +232,7 @@ function renderSchedule() {
         slot.draggable = true;
         slot.dataset.bookingId = booking.id;
         if (start) {
-          slot.innerHTML = `<span class="booking-copy">${escapeHtml(booking.name)}<small>${timeLabel(booking.start)}–${timeLabel(booking.start + booking.duration)}</small></span>`;
+          slot.innerHTML = `<span class="booking-copy">${escapeHtml(booking.name)}<small>${timeLabel(booking.start)}–${timeLabel(booking.start + booking.duration)}${booking.initials ? ` · ${escapeHtml(booking.initials)}` : ""}</small></span>`;
         }
         if (end) {
           const handle = document.createElement("span");
@@ -270,6 +271,7 @@ function renderScheduleSearch() {
       const haystack = [
         booking.name,
         booking.notes,
+        booking.initials,
         booking.date,
         resources[booking.resource]?.title
       ].join(" ").toLowerCase();
@@ -283,7 +285,7 @@ function renderScheduleSearch() {
       <button class="schedule-result" type="button" data-search-booking="${booking.id}">
         <strong>${escapeHtml(booking.name)}</strong>
         <span>${escapeHtml(resources[booking.resource]?.title || booking.resource)}</span>
-        <small>${formatDate(parseDate(booking.date), { weekday: "short", month: "short", day: "numeric", year: "numeric" })} · ${timeLabel(booking.start)}–${timeLabel(booking.start + booking.duration)}${booking.notes ? ` · ${escapeHtml(booking.notes)}` : ""}</small>
+        <small>${formatDate(parseDate(booking.date), { weekday: "short", month: "short", day: "numeric", year: "numeric" })} · ${timeLabel(booking.start)}–${timeLabel(booking.start + booking.duration)}${booking.initials ? ` · Signed ${escapeHtml(booking.initials)}` : ""}${booking.notes ? ` · ${escapeHtml(booking.notes)}` : ""}</small>
       </button>`)
       .join("")
     : '<div class="schedule-result-empty">No matching bookings found.</div>';
@@ -440,6 +442,7 @@ function openBookingDialog(booking = null, date = dateKey(new Date()), start = 6
   $("#bookingStart").value = booking?.start ?? start;
   $("#bookingDuration").value = booking?.duration || 60;
   $("#bookingNotes").value = booking?.notes || "";
+  $("#bookingInitials").value = booking?.initials || "";
   $("#bookingResource").textContent = resource.title;
   $("#bookingDialogTitle").textContent = booking ? "Edit booking" : "New booking";
   $("#deleteBooking").classList.toggle("hidden", !booking);
@@ -451,6 +454,13 @@ function openBookingDialog(booking = null, date = dateKey(new Date()), start = 6
 function saveBooking(event) {
   event.preventDefault();
   normalizePersonName({ currentTarget: $("#bookingName") });
+  normalizeInitials({ currentTarget: $("#bookingInitials") });
+  const initials = $("#bookingInitials").value;
+  if (!/^[A-Z]{3}$/.test(initials)) {
+    $("#bookingError").textContent = "Enter exactly 3 initials to sign off the booking.";
+    $("#bookingInitials").focus();
+    return;
+  }
   const booking = {
     id: $("#bookingId").value || crypto.randomUUID(),
     resource: activeView,
@@ -458,7 +468,8 @@ function saveBooking(event) {
     date: $("#bookingDate").value,
     start: Number($("#bookingStart").value),
     duration: Number($("#bookingDuration").value),
-    notes: $("#bookingNotes").value.trim()
+    notes: $("#bookingNotes").value.trim(),
+    initials
   };
   const endsAt = booking.start + booking.duration;
   if (endsAt > 1380) {
@@ -826,6 +837,10 @@ function canonicalPersonName(value) {
 function hasFirstAndLastName(value) {
   const parts = value.trim().split(/\s+/).filter(Boolean);
   return parts.length >= 2 && parts.every((part) => /[A-Za-z]/.test(part));
+}
+
+function normalizeInitials(event) {
+  event.currentTarget.value = event.currentTarget.value.replace(/[^A-Za-z]/g, "").slice(0, 3).toUpperCase();
 }
 
 function startOfWeek(date) {

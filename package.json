@@ -3,6 +3,9 @@
   "version": "1.0.0",
   "private": true,
   "description": "Academy of Aviation shared resource scheduler",
+  "dependencies": {
+    "@vercel/blob": "^2.3.0"
+  },
   "scripts": {
     "start": "node server.js",
     "dev": "node server.js"
