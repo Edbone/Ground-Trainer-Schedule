@@ -3,33 +3,26 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <meta name="theme-color" content="#07583f">
-  <title>VR Training Scheduler</title>
+  <meta name="theme-color" content="#124d91">
+  <title>Resource Scheduler</title>
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
   <link href="https://fonts.googleapis.com/css2?family=DM+Sans:wght@400;500;600;700&family=Manrope:wght@600;700;800&display=swap" rel="stylesheet">
   <link rel="stylesheet" href="styles.css">
 </head>
 <body>
-  <header class="topbar">
-    <div class="brand">
-      <div class="brand-mark">VR</div>
-      <div>
-        <p>Training Operations</p>
-        <h1>Resource Scheduler</h1>
-      </div>
-    </div>
-    <div class="today-card">
-      <span>Today</span>
-      <strong id="todayLabel"></strong>
-    </div>
-  </header>
-
   <nav class="tabs" aria-label="Scheduler sections">
-    <button class="tab active" data-view="ground1"><span class="tab-dot green"></span>Ground Trainer 1</button>
-    <button class="tab" data-view="ground2"><span class="tab-dot blue"></span>Ground Trainer 2</button>
-    <button class="tab" data-view="flight"><span class="tab-dot gold"></span>Flight Test Room</button>
-    <button class="tab" data-view="scores"><span class="tab-dot purple"></span>Written Test Scores</button>
+    <div class="nav-brand">
+      <img src="aoa-logo.png" alt="Academy of Aviation">
+      <span>Resource Scheduler</span>
+      <small id="syncStatus">Connecting...</small>
+    </div>
+    <div class="tab-list">
+      <button class="tab active" data-view="ground1">Trainer 1</button>
+      <button class="tab" data-view="ground2">Trainer 2</button>
+      <button class="tab" data-view="flight">Flight Test Room</button>
+      <button class="tab" data-view="scores">Written Scores</button>
+    </div>
   </nav>
 
   <main>
@@ -38,9 +31,16 @@
         <div>
           <p class="eyebrow" id="resourceType">VR Simulator</p>
           <h2 id="resourceTitle">Ground Trainer 1</h2>
-          <p class="subtext">Click any open time to create a reservation.</p>
+          <p class="subtext">Click an open time to book. Drag reservations to move them, or drag their yellow bottom edge to resize.</p>
         </div>
-        <button class="primary-button" id="newBookingButton">+ New booking</button>
+        <div class="schedule-actions">
+          <label class="schedule-search">
+            <span>⌕</span>
+            <input id="scheduleSearch" type="search" autocomplete="off" placeholder="Search all bookings">
+            <div id="scheduleSearchResults" class="schedule-search-results hidden"></div>
+          </label>
+          <button class="primary-button" id="newBookingButton">+ New booking</button>
+        </div>
       </div>
 
       <div class="schedule-toolbar">
@@ -53,7 +53,7 @@
           <span>Week of</span>
           <strong id="weekLabel"></strong>
         </div>
-        <div class="legend"><span></span>Reserved</div>
+        <div class="legend"><span></span>Drag to move · Pull bottom edge to resize</div>
       </div>
 
       <div class="schedule-shell">
@@ -68,7 +68,10 @@
           <h2>Score Tracker</h2>
           <p class="subtext">Students pass after scoring 90 or higher three times in a row. Every attempt stays on record.</p>
         </div>
-        <button class="primary-button" id="addScoreButton">+ Record score</button>
+        <div class="heading-actions">
+          <button class="quiet-button" id="pasteScoresButton">Paste test list</button>
+          <button class="primary-button" id="addScoreButton">+ Record score</button>
+        </div>
       </div>
 
       <div class="stats-grid">
@@ -114,7 +117,8 @@
       <input type="hidden" id="bookingId">
       <div class="form-grid">
         <label class="full">Name
-          <input id="bookingName" required maxlength="60" placeholder="Student or instructor name">
+          <input id="bookingName" required maxlength="60" list="personNames" autocomplete="off" placeholder="Start typing a name">
+          <datalist id="personNames"></datalist>
         </label>
         <label>Date
           <input id="bookingDate" type="date" required>
@@ -158,12 +162,11 @@
       </div>
       <div class="form-grid">
         <label class="full">Student name
-          <input id="scoreName" required maxlength="60" list="studentNames" placeholder="Full name">
-          <datalist id="studentNames"></datalist>
+          <input id="scoreName" required maxlength="60" list="personNames" autocomplete="off" placeholder="First and last name">
         </label>
         <label>Score
           <div class="score-input-wrap">
-            <input id="scoreValue" type="number" min="0" max="100" required placeholder="0">
+            <input id="scoreValue" type="number" min="0" max="100" placeholder="Blank = absent">
             <span>%</span>
           </div>
         </label>
@@ -174,6 +177,7 @@
           <input id="scoreNotes" maxlength="100" placeholder="Optional">
         </label>
       </div>
+      <p class="form-error" id="scoreError"></p>
       <div class="dialog-actions">
         <span class="action-spacer"></span>
         <button class="quiet-button" type="button" data-close="scoreDialog">Cancel</button>
@@ -182,6 +186,28 @@
     </form>
   </dialog>
 
+  <dialog id="importDialog" class="wide-dialog">
+    <form id="importForm" method="dialog">
+      <div class="dialog-heading">
+        <div>
+          <p class="eyebrow">Bulk Score Import</p>
+          <h3>Paste test list</h3>
+        </div>
+        <button class="close-button" type="button" data-close="importDialog" aria-label="Close">×</button>
+      </div>
+      <p class="import-help">Paste spreadsheet rows or grouped Name / Score / Date lines. Tabs, commas, and plain-space rows work. Decimal scores are accepted, extra text is saved as notes, and a missing score is recorded as Absent.</p>
+      <textarea id="importText" class="import-textarea" placeholder="Alex Smith, 92, 6/1/2026&#10;Alysha Andrade	9/4/2025	10:00:00 AM	PPL	86%	CH"></textarea>
+      <div id="importSummary" class="import-summary">Paste your list to preview it.</div>
+      <div id="importPreview" class="import-preview"></div>
+      <div class="dialog-actions">
+        <span class="action-spacer"></span>
+        <button class="quiet-button" type="button" data-close="importDialog">Cancel</button>
+        <button class="primary-button" id="importScoresButton" type="submit" disabled>Import scores</button>
+      </div>
+    </form>
+  </dialog>
+
+  <script src="initial-scores.js"></script>
   <script src="app.js"></script>
 </body>
 </html>
