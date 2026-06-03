@@ -1,0 +1,187 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <meta name="theme-color" content="#07583f">
+  <title>VR Training Scheduler</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=DM+Sans:wght@400;500;600;700&family=Manrope:wght@600;700;800&display=swap" rel="stylesheet">
+  <link rel="stylesheet" href="styles.css">
+</head>
+<body>
+  <header class="topbar">
+    <div class="brand">
+      <div class="brand-mark">VR</div>
+      <div>
+        <p>Training Operations</p>
+        <h1>Resource Scheduler</h1>
+      </div>
+    </div>
+    <div class="today-card">
+      <span>Today</span>
+      <strong id="todayLabel"></strong>
+    </div>
+  </header>
+
+  <nav class="tabs" aria-label="Scheduler sections">
+    <button class="tab active" data-view="ground1"><span class="tab-dot green"></span>Ground Trainer 1</button>
+    <button class="tab" data-view="ground2"><span class="tab-dot blue"></span>Ground Trainer 2</button>
+    <button class="tab" data-view="flight"><span class="tab-dot gold"></span>Flight Test Room</button>
+    <button class="tab" data-view="scores"><span class="tab-dot purple"></span>Written Test Scores</button>
+  </nav>
+
+  <main>
+    <section id="scheduleView" class="view">
+      <div class="page-heading">
+        <div>
+          <p class="eyebrow" id="resourceType">VR Simulator</p>
+          <h2 id="resourceTitle">Ground Trainer 1</h2>
+          <p class="subtext">Click any open time to create a reservation.</p>
+        </div>
+        <button class="primary-button" id="newBookingButton">+ New booking</button>
+      </div>
+
+      <div class="schedule-toolbar">
+        <div class="week-controls">
+          <button class="icon-button" id="prevWeek" aria-label="Previous week">←</button>
+          <button class="quiet-button" id="thisWeek">This week</button>
+          <button class="icon-button" id="nextWeek" aria-label="Next week">→</button>
+        </div>
+        <div class="week-title">
+          <span>Week of</span>
+          <strong id="weekLabel"></strong>
+        </div>
+        <div class="legend"><span></span>Reserved</div>
+      </div>
+
+      <div class="schedule-shell">
+        <div class="schedule-grid" id="scheduleGrid"></div>
+      </div>
+    </section>
+
+    <section id="scoresView" class="view hidden">
+      <div class="page-heading">
+        <div>
+          <p class="eyebrow">Written Test Qualification</p>
+          <h2>Score Tracker</h2>
+          <p class="subtext">Students pass after scoring 90 or higher three times in a row. Every attempt stays on record.</p>
+        </div>
+        <button class="primary-button" id="addScoreButton">+ Record score</button>
+      </div>
+
+      <div class="stats-grid">
+        <article class="stat-card">
+          <span>Total students</span>
+          <strong id="studentCount">0</strong>
+        </article>
+        <article class="stat-card">
+          <span>Qualified</span>
+          <strong id="passedCount">0</strong>
+        </article>
+        <article class="stat-card">
+          <span>Still training</span>
+          <strong id="trainingCount">0</strong>
+        </article>
+      </div>
+
+      <div class="score-tools">
+        <label class="search-box">
+          <span>⌕</span>
+          <input id="scoreSearch" type="search" placeholder="Search students">
+        </label>
+      </div>
+
+      <div id="scoreEmpty" class="empty-state">
+        <div class="empty-icon">90</div>
+        <h3>No scores recorded yet</h3>
+        <p>Add a student's first written test attempt to begin tracking progress.</p>
+      </div>
+      <div id="studentList" class="student-list"></div>
+    </section>
+  </main>
+
+  <dialog id="bookingDialog">
+    <form id="bookingForm" method="dialog">
+      <div class="dialog-heading">
+        <div>
+          <p class="eyebrow" id="bookingResource"></p>
+          <h3 id="bookingDialogTitle">New booking</h3>
+        </div>
+        <button class="close-button" type="button" data-close="bookingDialog" aria-label="Close">×</button>
+      </div>
+      <input type="hidden" id="bookingId">
+      <div class="form-grid">
+        <label class="full">Name
+          <input id="bookingName" required maxlength="60" placeholder="Student or instructor name">
+        </label>
+        <label>Date
+          <input id="bookingDate" type="date" required>
+        </label>
+        <label>Start time
+          <select id="bookingStart" required></select>
+        </label>
+        <label>Duration
+          <select id="bookingDuration" required>
+            <option value="30">30 minutes</option>
+            <option value="60" selected>1 hour</option>
+            <option value="90">1.5 hours</option>
+            <option value="120">2 hours</option>
+            <option value="150">2.5 hours</option>
+            <option value="180">3 hours</option>
+            <option value="240">4 hours</option>
+          </select>
+        </label>
+        <label>Notes
+          <input id="bookingNotes" maxlength="100" placeholder="Optional">
+        </label>
+      </div>
+      <p class="form-error" id="bookingError"></p>
+      <div class="dialog-actions">
+        <button class="danger-button hidden" id="deleteBooking" type="button">Delete</button>
+        <span class="action-spacer"></span>
+        <button class="quiet-button" type="button" data-close="bookingDialog">Cancel</button>
+        <button class="primary-button" type="submit">Save booking</button>
+      </div>
+    </form>
+  </dialog>
+
+  <dialog id="scoreDialog">
+    <form id="scoreForm" method="dialog">
+      <div class="dialog-heading">
+        <div>
+          <p class="eyebrow">Written Test Attempt</p>
+          <h3>Record score</h3>
+        </div>
+        <button class="close-button" type="button" data-close="scoreDialog" aria-label="Close">×</button>
+      </div>
+      <div class="form-grid">
+        <label class="full">Student name
+          <input id="scoreName" required maxlength="60" list="studentNames" placeholder="Full name">
+          <datalist id="studentNames"></datalist>
+        </label>
+        <label>Score
+          <div class="score-input-wrap">
+            <input id="scoreValue" type="number" min="0" max="100" required placeholder="0">
+            <span>%</span>
+          </div>
+        </label>
+        <label>Date
+          <input id="scoreDate" type="date" required>
+        </label>
+        <label class="full">Notes
+          <input id="scoreNotes" maxlength="100" placeholder="Optional">
+        </label>
+      </div>
+      <div class="dialog-actions">
+        <span class="action-spacer"></span>
+        <button class="quiet-button" type="button" data-close="scoreDialog">Cancel</button>
+        <button class="primary-button" type="submit">Save score</button>
+      </div>
+    </form>
+  </dialog>
+
+  <script src="app.js"></script>
+</body>
+</html>
