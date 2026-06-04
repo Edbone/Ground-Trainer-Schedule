@@ -2,3 +2,5 @@ data/state.json
 data/state.json.tmp
 node_modules/
 .DS_Store
+.vercel
+.env*

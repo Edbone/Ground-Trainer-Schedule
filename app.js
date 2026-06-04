@@ -26,6 +26,10 @@ let dragData = null;
 let suppressBookingClick = false;
 let serverSaveTimer = null;
 let serverAvailable = false;
+let saveInFlight = false;
+let refreshInFlight = false;
+let localRevision = 0;
+let savedRevision = 0;
 
 const $ = (selector) => document.querySelector(selector);
 const $$ = (selector) => [...document.querySelectorAll(selector)];
@@ -63,6 +67,7 @@ function loadState() {
 }
 
 function saveState() {
+  localRevision += 1;
   localStorage.setItem(STORAGE_KEY, JSON.stringify(state));
   scheduleServerSave();
 }
@@ -100,29 +105,48 @@ function scheduleServerSave() {
 }
 
 async function saveServerState() {
+  if (saveInFlight) return;
   serverSaveTimer = null;
+  saveInFlight = true;
+  const revisionBeingSaved = localRevision;
+  const stateBeingSaved = JSON.stringify(state);
   try {
     const response = await fetch("/api/state", {
       method: "PUT",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify(state)
+      body: stateBeingSaved
     });
     if (!response.ok) throw new Error("Save failed");
     const payload = await response.json();
-    state.serverUpdatedAt = payload.serverUpdatedAt;
-    localStorage.setItem(STORAGE_KEY, JSON.stringify(state));
+    savedRevision = revisionBeingSaved;
+    if (localRevision === revisionBeingSaved) {
+      state.serverUpdatedAt = payload.serverUpdatedAt;
+      localStorage.setItem(STORAGE_KEY, JSON.stringify(state));
+    }
     serverAvailable = true;
-    setSyncStatus("Saved", "online");
+    setSyncStatus(localRevision === savedRevision ? "Saved" : "Saving...", localRevision === savedRevision ? "online" : "saving");
   } catch {
     serverAvailable = false;
     setSyncStatus("Local only", "offline");
+  } finally {
+    saveInFlight = false;
+    if (serverAvailable && localRevision > savedRevision) scheduleServerSave();
   }
 }
 
 async function refreshServerState() {
-  if (!serverAvailable || document.querySelector("dialog[open]") || serverSaveTimer) return;
+  if (
+    !serverAvailable ||
+    refreshInFlight ||
+    document.querySelector("dialog[open]") ||
+    serverSaveTimer ||
+    saveInFlight ||
+    localRevision !== savedRevision
+  ) return;
+  refreshInFlight = true;
   try {
     const response = await fetch("/api/state", { cache: "no-store" });
+    if (!response.ok) throw new Error("Refresh failed");
     const payload = await response.json();
     if (payload.state?.serverUpdatedAt && payload.state.serverUpdatedAt !== state.serverUpdatedAt) {
       state = normalizeLoadedState(payload.state);
@@ -134,6 +158,8 @@ async function refreshServerState() {
   } catch {
     serverAvailable = false;
     setSyncStatus("Local only", "offline");
+  } finally {
+    refreshInFlight = false;
   }
 }
 
