@@ -58,7 +58,7 @@ module.exports = async function handler(req, res) {
         access: "private",
         allowOverwrite: true,
         contentType: "application/json",
-        cacheControlMaxAge: 60
+        cacheControlMaxAge: 0
       });
       res.status(200).json({ ok: true, serverUpdatedAt: body.serverUpdatedAt });
     } catch (error) {

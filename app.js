@@ -66,10 +66,17 @@ function loadState() {
   }
 }
 
-function saveState() {
+function saveState(immediate = false) {
   localRevision += 1;
   localStorage.setItem(STORAGE_KEY, JSON.stringify(state));
-  scheduleServerSave();
+  if (immediate && serverAvailable) {
+    clearTimeout(serverSaveTimer);
+    serverSaveTimer = null;
+    setSyncStatus("Saving...", "saving");
+    void saveServerState();
+  } else {
+    scheduleServerSave();
+  }
 }
 
 async function loadServerState() {
@@ -114,7 +121,8 @@ async function saveServerState() {
     const response = await fetch("/api/state", {
       method: "PUT",
       headers: { "Content-Type": "application/json" },
-      body: stateBeingSaved
+      body: stateBeingSaved,
+      keepalive: true
     });
     if (!response.ok) throw new Error("Save failed");
     const payload = await response.json();
@@ -144,10 +152,12 @@ async function refreshServerState() {
     localRevision !== savedRevision
   ) return;
   refreshInFlight = true;
+  const revisionBeforeRefresh = localRevision;
   try {
     const response = await fetch("/api/state", { cache: "no-store" });
     if (!response.ok) throw new Error("Refresh failed");
     const payload = await response.json();
+    if (localRevision !== revisionBeforeRefresh || saveInFlight || serverSaveTimer) return;
     if (payload.state?.serverUpdatedAt && payload.state.serverUpdatedAt !== state.serverUpdatedAt) {
       state = normalizeLoadedState(payload.state);
       localStorage.setItem(STORAGE_KEY, JSON.stringify(state));
@@ -364,7 +374,7 @@ function dropBooking(event) {
   const updated = { ...booking, date: slot.dataset.date, start: newStart };
   if (!isValidBookingChange(updated)) return;
   Object.assign(booking, updated);
-  saveState();
+  saveState(true);
   dragData = null;
   suppressBookingClick = true;
   renderSchedule();
@@ -406,7 +416,7 @@ function startResize(event, booking) {
     const updated = { ...booking, duration };
     if (isValidBookingChange(updated)) {
       booking.duration = duration;
-      saveState();
+      saveState(true);
       renderSchedule();
     }
     suppressBookingClick = true;
@@ -516,7 +526,7 @@ function saveBooking(event) {
   const existingIndex = state.bookings.findIndex((item) => item.id === booking.id);
   if (existingIndex >= 0) state.bookings[existingIndex] = booking;
   else state.bookings.push(booking);
-  saveState();
+  saveState(true);
   $("#bookingDialog").close();
   weekStart = startOfWeek(parseDate(booking.date));
   renderSchedule();
@@ -526,7 +536,7 @@ function deleteBooking() {
   const id = $("#bookingId").value;
   if (!id || !confirm("Delete this booking?")) return;
   state.bookings = state.bookings.filter((booking) => booking.id !== id);
-  saveState();
+  saveState(true);
   $("#bookingDialog").close();
   renderSchedule();
 }
@@ -559,7 +569,7 @@ function saveScore(event) {
     notes: $("#scoreNotes").value.trim(),
     createdAt: Date.now()
   });
-  saveState();
+  saveState(true);
   $("#scoreDialog").close();
   renderScores();
 }
@@ -616,7 +626,7 @@ function importScores(event) {
       createdAt: Date.now() + index
     });
   });
-  saveState();
+  saveState(true);
   $("#importDialog").close();
   renderScores();
 }
@@ -764,7 +774,7 @@ function renderScores() {
 function deleteScore(id) {
   if (!confirm("Delete this score attempt?")) return;
   state.scores = state.scores.filter((score) => score.id !== id);
-  saveState();
+  saveState(true);
   renderScores();
 }
 
@@ -801,7 +811,7 @@ function toggleStudentComplete(name) {
   const key = canonicalPersonName(name).toLowerCase();
   if (state.completionOverrides[key]) delete state.completionOverrides[key];
   else state.completionOverrides[key] = true;
-  saveState();
+  saveState(true);
   renderScores();
 }
 
@@ -812,7 +822,7 @@ function removeStudent(name) {
   state.scores = state.scores.filter((score) => canonicalPersonName(score.name).toLowerCase() !== key);
   delete state.completionOverrides[key];
   if (!state.removedStudents.includes(key)) state.removedStudents.push(key);
-  saveState();
+  saveState(true);
   renderScores();
 }
 
