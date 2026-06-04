@@ -3,7 +3,11 @@ const INITIAL_DATA_VERSION = 2;
 const resources = {
   ground1: { title: "Ground Trainer 1", type: "VR Simulator", color: "#1769c2", text: "#ffffff" },
   ground2: { title: "Ground Trainer 2", type: "VR Simulator", color: "#f2bd31", text: "#14233a" },
-  flight: { title: "Flight Test Room", type: "Testing Facility", color: "#124d91", text: "#ffffff" }
+  flight: { title: "Flight Test Room", type: "Testing Facility", color: "#124d91", text: "#ffffff" },
+  stage: { title: "Stage Check", type: "Stage Check Scheduling", color: "#0d6efd", text: "#ffffff" },
+  e6b: { title: "E6B Rentals", type: "Navigation Trainer", color: "#2e7d32", text: "#ffffff" },
+  fuel: { title: "Fuel Discrepancies", type: "Fuel discrepancy log", color: "#f57f17", text: "#14233a" },
+  oil: { title: "Oil Sheet", type: "Maintenance log", color: "#5d4037", text: "#ffffff" }
 };
 const PERSON_NAME_ALIASES = new Map([
   ["christian feliz", "Cristian Feliz"],
@@ -19,13 +23,18 @@ const PERSON_NAME_ALIASES = new Map([
   ["saif hussein", "Saif Hussein"]
 ]);
 
+const FIREBASE_CONFIG = window.FIREBASE_CONFIG || null;
+const REMOTE_BACKEND = FIREBASE_CONFIG ? "firebase" : "server";
+
 let state = loadState();
 let activeView = "ground1";
 let weekStart = startOfWeek(new Date());
 let dragData = null;
 let suppressBookingClick = false;
 let serverSaveTimer = null;
-let serverAvailable = false;
+let firebaseSaveTimer = null;
+let remoteAvailable = false;
+let firebaseDbRef = null;
 let saveInFlight = false;
 let refreshInFlight = false;
 let localRevision = 0;
@@ -39,11 +48,14 @@ initialize();
 async function initialize() {
   populateTimeOptions();
   bindEvents();
-  await loadServerState();
+  if (REMOTE_BACKEND === "firebase") {
+    initFirebase();
+  }
+  await loadRemoteState();
   renderSchedule();
   renderScores();
   saveState();
-  window.setInterval(refreshServerState, 15000);
+  window.setInterval(refreshRemoteState, 15000);
 }
 
 function loadState() {
@@ -69,13 +81,14 @@ function loadState() {
 function saveState(immediate = false) {
   localRevision += 1;
   localStorage.setItem(STORAGE_KEY, JSON.stringify(state));
-  if (immediate && serverAvailable) {
-    clearTimeout(serverSaveTimer);
-    serverSaveTimer = null;
+  if (immediate && remoteAvailable) {
+    clearTimeout(REMOTE_BACKEND === "firebase" ? firebaseSaveTimer : serverSaveTimer);
+    if (REMOTE_BACKEND === "firebase") firebaseSaveTimer = null;
+    else serverSaveTimer = null;
     setSyncStatus("Saving...", "saving");
-    void saveServerState();
+    void saveRemoteState();
   } else {
-    scheduleServerSave();
+    scheduleRemoteSave();
   }
 }
 
@@ -84,15 +97,134 @@ async function loadServerState() {
     const response = await fetch("/api/state", { cache: "no-store" });
     if (!response.ok) throw new Error("Server unavailable");
     const payload = await response.json();
-    serverAvailable = true;
+    remoteAvailable = true;
     setSyncStatus("Shared", "online");
     if (payload.state) {
       state = normalizeLoadedState(payload.state);
       localStorage.setItem(STORAGE_KEY, JSON.stringify(state));
     }
   } catch {
-    serverAvailable = false;
+    remoteAvailable = false;
     setSyncStatus("Local only", "offline");
+  }
+}
+
+function loadRemoteState() {
+  return REMOTE_BACKEND === "firebase" ? loadFirebaseState() : loadServerState();
+}
+
+function scheduleRemoteSave() {
+  if (!remoteAvailable) return;
+  setSyncStatus("Saving...", "saving");
+  if (REMOTE_BACKEND === "firebase") {
+    clearTimeout(firebaseSaveTimer);
+    firebaseSaveTimer = setTimeout(saveFirebaseState, 500);
+  } else {
+    clearTimeout(serverSaveTimer);
+    serverSaveTimer = setTimeout(saveServerState, 500);
+  }
+}
+
+function saveRemoteState() {
+  return REMOTE_BACKEND === "firebase" ? saveFirebaseState() : saveServerState();
+}
+
+function refreshRemoteState() {
+  return REMOTE_BACKEND === "firebase" ? refreshFirebaseState() : refreshServerState();
+}
+
+function initFirebase() {
+  if (!FIREBASE_CONFIG) {
+    remoteAvailable = false;
+    return;
+  }
+  try {
+    firebase.initializeApp(FIREBASE_CONFIG);
+    firebaseDbRef = firebase.database().ref("/scheduler/state");
+    remoteAvailable = true;
+  } catch (error) {
+    console.error("Firebase init failed", error);
+    remoteAvailable = false;
+  }
+}
+
+async function loadFirebaseState() {
+  if (!remoteAvailable || !firebaseDbRef) return;
+  try {
+    const snapshot = await firebaseDbRef.once("value");
+    const payload = snapshot.val();
+    remoteAvailable = true;
+    setSyncStatus("Shared", "online");
+    if (payload?.state) {
+      state = normalizeLoadedState(payload.state);
+      localStorage.setItem(STORAGE_KEY, JSON.stringify(state));
+      state.serverUpdatedAt = payload.state.serverUpdatedAt || new Date().toISOString();
+    } else if (payload?.bookings || payload?.scores) {
+      state = normalizeLoadedState(payload);
+      localStorage.setItem(STORAGE_KEY, JSON.stringify(state));
+      state.serverUpdatedAt = payload.serverUpdatedAt || new Date().toISOString();
+    }
+  } catch (error) {
+    console.error("Firebase load failed", error);
+    remoteAvailable = false;
+    setSyncStatus("Local only", "offline");
+  }
+}
+
+async function saveFirebaseState() {
+  if (saveInFlight) return;
+  firebaseSaveTimer = null;
+  saveInFlight = true;
+  const revisionBeingSaved = localRevision;
+  const stateBeingSaved = { ...state, serverUpdatedAt: new Date().toISOString() };
+  try {
+    await firebaseDbRef.set({ state: stateBeingSaved });
+    savedRevision = revisionBeingSaved;
+    if (localRevision === revisionBeingSaved) {
+      state.serverUpdatedAt = stateBeingSaved.serverUpdatedAt;
+      localStorage.setItem(STORAGE_KEY, JSON.stringify(state));
+    }
+    remoteAvailable = true;
+    setSyncStatus(localRevision === savedRevision ? "Saved" : "Saving...", localRevision === savedRevision ? "online" : "saving");
+  } catch (error) {
+    console.error("Firebase save failed", error);
+    remoteAvailable = false;
+    setSyncStatus("Local only", "offline");
+  } finally {
+    saveInFlight = false;
+    if (remoteAvailable && localRevision > savedRevision) scheduleRemoteSave();
+  }
+}
+
+async function refreshFirebaseState() {
+  const pendingSave = REMOTE_BACKEND === "firebase" ? firebaseSaveTimer : serverSaveTimer;
+  if (
+    !remoteAvailable ||
+    refreshInFlight ||
+    document.querySelector("dialog[open]") ||
+    pendingSave ||
+    saveInFlight ||
+    localRevision !== savedRevision
+  ) return;
+  refreshInFlight = true;
+  const revisionBeforeRefresh = localRevision;
+  try {
+    const snapshot = await firebaseDbRef.once("value");
+    const payload = snapshot.val();
+    if (localRevision !== revisionBeforeRefresh || saveInFlight || pendingSave) return;
+    if (payload?.state?.serverUpdatedAt && payload.state.serverUpdatedAt !== state.serverUpdatedAt) {
+      state = normalizeLoadedState(payload.state);
+      localStorage.setItem(STORAGE_KEY, JSON.stringify(state));
+      renderSchedule();
+      renderScores();
+    }
+    setSyncStatus("Shared", "online");
+  } catch (error) {
+    console.error("Firebase refresh failed", error);
+    remoteAvailable = false;
+    setSyncStatus("Local only", "offline");
+  } finally {
+    refreshInFlight = false;
   }
 }
 
@@ -105,7 +237,7 @@ function normalizeLoadedState(saved) {
 }
 
 function scheduleServerSave() {
-  if (!serverAvailable) return;
+  if (!remoteAvailable) return;
   setSyncStatus("Saving...", "saving");
   clearTimeout(serverSaveTimer);
   serverSaveTimer = setTimeout(saveServerState, 500);
@@ -131,20 +263,20 @@ async function saveServerState() {
       state.serverUpdatedAt = payload.serverUpdatedAt;
       localStorage.setItem(STORAGE_KEY, JSON.stringify(state));
     }
-    serverAvailable = true;
+    remoteAvailable = true;
     setSyncStatus(localRevision === savedRevision ? "Saved" : "Saving...", localRevision === savedRevision ? "online" : "saving");
   } catch {
-    serverAvailable = false;
+    remoteAvailable = false;
     setSyncStatus("Local only", "offline");
   } finally {
     saveInFlight = false;
-    if (serverAvailable && localRevision > savedRevision) scheduleServerSave();
+    if (remoteAvailable && localRevision > savedRevision) scheduleServerSave();
   }
 }
 
 async function refreshServerState() {
   if (
-    !serverAvailable ||
+    !remoteAvailable ||
     refreshInFlight ||
     document.querySelector("dialog[open]") ||
     serverSaveTimer ||
@@ -164,9 +296,10 @@ async function refreshServerState() {
       renderSchedule();
       renderScores();
     }
+    remoteAvailable = true;
     setSyncStatus("Shared", "online");
   } catch {
-    serverAvailable = false;
+    remoteAvailable = false;
     setSyncStatus("Local only", "offline");
   } finally {
     refreshInFlight = false;
